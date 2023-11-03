@@ -9,32 +9,61 @@ So, once I failed to find what I was looking for, I've spent an evening and buil
 
 # Features
 - validates body (JSON)
-- validates search query params (arrays are not supported at the moment, maybe in the future, don't need them now)
-- validate dynamic route param segments
-- returns third param to handler with type safe validated input, an object: `{body: {}, params: {}, queryParams: {}}` 
+- validates search query params
+- validates dynamic route segments
+- validates headers
+- returns simple 400 error JSON response or returns error list in third param for you to return own response in handler or pre-handler
+- offers to run pre-handler (with access to validated data), so you can re-use logic to check auth tokens etc. Simply throw error to stop execution
+- returns third param to main handler with type safe validated input, an object: `{body?: {}, segment?: {}, query?: {}, headers?: {}, errors?: {}}`
+- exports `ApiHandlerError` to throw on preHandler (you can also throw standard `Error`, then 400 status will be returned)
 
 # Usage
 Import validator and wrap your route. 
 
-First param is an object (every key is optional) with your Zod definitions (you need to provide `z.object`), second param is your standard handler with extra 3rd param - validated, type safe input.
+First param is an object (every key is optional) with 3 keys available: 
+- `schema`, for schema setup with your Zod definitions (you need to provide `z.object`)
+- `preHandler`, a function where you can extract logic for repetitive tasks, ie to check token etc.
+- `options`, currently you can turn on/off functionality to show 400 page on any Zod error via `return400ValidationError`, this is `true` by default
 
-```
+Second param is your standard handler with extra 3rd param - validated, type safe input and if you set `return400ValidationError` to `false`, you'll also get Zod errors.
+
+# Code example
+
+``` js
 // src/app/api/route/[someParam]/route.ts
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import apiZodValidator from 'next-api-zod';
+import { apiZodValidator, ApiHandlerError } from 'next-api-zod';
 
 export const POST = apiZodValidator(
   {
-    body: z.object({ someKey: z.string() }),
-    params: z.object({ someParam: z.string().max(5) }),
-    queryParams: z.object({ someQueryParam: z.string() }),
+    schema: {
+      body: z.object({ someKey: z.string() }),
+      segment: z.object({ someParam: z.string().max(5) }),
+      query: z.object({ someQueryParam: z.string() }),
+      headers: z.object({ someHeader: z.string() }),
+    },
+    config: {
+      return400ValidationError: false,
+    },
+    preHandler: (req, nfe, { headers }) => {
+      // here you can validate token
+      // throw to stop execution - handler will not run
+      if (!isValidToken(headers)) {
+        throw new ApiHandlerError(JSON.stringify({ msg: "some error" }), 401);
+      }
+    },
   },
-  (req, nfe, { body, queryParams, params }) => {
-    console.log({ body: body.someKey, qp: queryParams.someQueryParam, params: params.someParam });
+  (req, nfe, { body, query, segment, headers }) => {
+    console.log({
+      body: body.someKey,
+      qp: query.someQueryParam,
+      segment: segment.someParam,
+      headers: headers.someHeader,
+    });
 
-    return NextResponse.json('OK');
-  },
+    return new NextResponse("OK");
+  }
 );
 ```

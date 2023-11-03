@@ -3,24 +3,66 @@ import {
   type NextFetchEvent,
   NextResponse,
 } from "next/server";
-import type { z } from "zod";
+import { headers } from "next/headers";
+import { z } from "zod";
 
-const apiZodValidator = <
-  SB extends z.AnyZodObject,
-  SQP extends z.AnyZodObject,
-  SP extends z.AnyZodObject
+export class ApiHandlerError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode: number = 400) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+export const apiHandler = <
+  TBody extends z.AnyZodObject,
+  TQueryParam extends z.AnyZodObject,
+  TSegment extends z.AnyZodObject,
+  THeaders extends z.AnyZodObject
 >(
-  config: { body?: SB; queryParams?: SQP; params?: SP },
+  setup: {
+    schema?: {
+      body?: TBody;
+      query?: TQueryParam;
+      segment?: TSegment;
+      headers?: THeaders;
+    };
+    preHandler?: (
+      req: NextRequest,
+      nfe: NextFetchEvent,
+      validated: {
+        body: z.infer<TBody>;
+        segment: z.infer<TSegment>;
+        query: z.infer<TQueryParam>;
+        headers: z.infer<THeaders>;
+        errors: z.ZodIssue[];
+      }
+    ) => void | Promise<void>;
+    config?: {
+      return400ValidationError: boolean;
+    };
+  },
   handler: (
     req: NextRequest,
     nfe: NextFetchEvent,
     validated: {
-      body: z.infer<SB>;
-      params: z.infer<SP>;
-      queryParams: z.infer<SQP>;
+      body: z.infer<TBody>;
+      segment: z.infer<TSegment>;
+      query: z.infer<TQueryParam>;
+      headers: z.infer<THeaders>;
+      errors: z.ZodIssue[];
     }
-  ) => NextResponse | Promise<NextResponse>
+  ) => unknown | Promise<unknown>
 ) => {
+  const defaultConfig = {
+    return400ValidationError: true,
+  };
+
+  const config = {
+    ...defaultConfig,
+    ...(setup.config || {}),
+  };
+
   const validationError = (type: string, data: z.ZodIssue | undefined) =>
     NextResponse.json(
       {
@@ -34,6 +76,17 @@ const apiZodValidator = <
       }
     );
 
+  const objectFromEntries = (
+    // headers are IterableIterator, queryParams are URLSearchParams
+    entries: IterableIterator<[string, unknown]> | URLSearchParams
+  ) => {
+    const obj = {} as Record<string, unknown>;
+    for (const [key, val] of entries) {
+      obj[key] = val;
+    }
+    return obj;
+  };
+
   return async (
     req: NextRequest,
     nfe: NextFetchEvent & { params: unknown }
@@ -41,43 +94,105 @@ const apiZodValidator = <
     const reqClone = req.clone() as NextRequest;
 
     const validated = {} as {
-      body: z.infer<SB>;
-      queryParams: z.infer<SQP>;
-      params: z.infer<SP>;
+      body: z.infer<TBody>;
+      segment: z.infer<TSegment>;
+      query: z.infer<TQueryParam>;
+      headers: z.infer<THeaders>;
+      errors: z.ZodIssue[];
     };
 
-    if (config.body) {
-      const body = await req.json();
-      const bodyParsed = config.body.safeParse(body);
+    // start with empty list of errors / issues
+    validated.errors = [];
 
-      if (!bodyParsed.success) {
-        return validationError("body", bodyParsed.error.errors[0]);
+    type ValidationKeys = "body" | "segment" | "query" | "headers";
+
+    const getData = async (type: ValidationKeys) => {
+      let data;
+
+      switch (type) {
+        case "body":
+          try {
+            data = await req.json();
+          } catch (e) {
+            data = {};
+          }
+          break;
+
+        case "segment":
+          data = nfe.params;
+          break;
+
+        case "query":
+          data = objectFromEntries(new URL(req.url).searchParams);
+          break;
+
+        case "headers":
+          data = objectFromEntries(headers().entries());
+          break;
+
+        default:
+          throw new Error("Unknown data type");
       }
-      validated.body = bodyParsed.data;
+
+      return data;
+    };
+
+    const toBeParsedList: ValidationKeys[] | null = setup.schema
+      ? (Object.entries(setup.schema)
+          .filter(([, val]) => !!val)
+          .map(([key]) => key) as ValidationKeys[])
+      : [];
+
+    if (!!setup.schema && toBeParsedList.length > 0) {
+      for (const el of toBeParsedList) {
+        const data = await getData(el);
+        const parsed = setup.schema[el]?.safeParse(data);
+
+        if (parsed?.success) {
+          validated[el] = parsed.data;
+        } else {
+          // push error list if defined
+          if (parsed?.error.errors) {
+            validated.errors = [...validated.errors, ...parsed?.error.errors];
+          }
+          // return 400 if not disabled in config
+          if (config.return400ValidationError) {
+            return validationError(el, parsed?.error.errors[0]);
+          }
+        }
+      }
     }
 
-    if (config.params) {
-      const params = nfe.params;
-      const paramsParsed = config.params.safeParse(params);
+    if (setup.preHandler) {
+      try {
+        await setup.preHandler(reqClone, nfe, validated);
+      } catch (e) {
+        if (e instanceof ApiHandlerError || e instanceof Error) {
+          try {
+            return NextResponse.json(JSON.parse(e.message), {
+              status: e instanceof ApiHandlerError ? e.statusCode || 400 : 400,
+            });
+          } catch {
+            return new NextResponse(e.message, {
+              status: e instanceof ApiHandlerError ? e.statusCode || 400 : 400,
+            });
+          }
+        }
 
-      if (!paramsParsed.success) {
-        return validationError("params", paramsParsed.error.errors[0]);
+        return NextResponse.json(
+          {
+            status: "error",
+            statusCode: 400,
+            message: "Pre-handler failed.",
+          },
+          {
+            status: 400,
+          }
+        );
       }
-      validated.params = paramsParsed.data;
     }
 
-    if (config.queryParams) {
-      const qp = Object.fromEntries(new URL(req.url).searchParams);
-      const qpParsed = config.queryParams.safeParse(qp);
-
-      if (!qpParsed.success) {
-        return validationError("queryParams", qpParsed.error.errors[0]);
-      }
-      validated.queryParams = qpParsed.data;
-    }
-
+    // run handler
     return handler(reqClone, nfe, validated);
   };
 };
-
-export { apiZodValidator as default };
