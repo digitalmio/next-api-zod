@@ -114,7 +114,22 @@ export const apiHandler = <
           try {
             data = await req.json();
           } catch (e) {
-            data = {};
+            if (config.return400ValidationError) {
+              return NextResponse.json(
+                {
+                  type,
+                  status: "error",
+                  message: "Invalid JSON body provided",
+                  path: [],
+                },
+                {
+                  status: 400,
+                }
+              );
+            } else {
+              data = {};
+              console.log("Invalid JSON body provided");
+            }
           }
           break;
 
