@@ -1,7 +1,8 @@
 {
   "name": "next-api-zod",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "",
+  "homepage": "https://github.com/digitalmio/next-api-zod#readme",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",

@@ -52,7 +52,7 @@ export const apiHandler = <
       headers: z.infer<THeaders>;
       errors: z.ZodIssue[];
     }
-  ) => unknown | Promise<unknown>
+  ) => void | Response | Promise<void | Response>
 ) => {
   const defaultConfig = {
     return400ValidationError: true,
