@@ -34,9 +34,9 @@ Second param is your standard handler with extra 3rd param - validated, type saf
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { apiZodValidator, ApiHandlerError } from 'next-api-zod';
+import { apiHandler, ApiHandlerError } from 'next-api-zod';
 
-export const POST = apiZodValidator(
+export const POST = apiHandler(
   {
     schema: {
       body: z.object({ someKey: z.string() }),
@@ -48,10 +48,10 @@ export const POST = apiZodValidator(
       return400ValidationError: false,
     },
     preHandler: (req, nfe, { headers }) => {
-      // here you can validate token
+      // here you can validate token, etc
       // throw to stop execution - handler will not run
       if (!isValidToken(headers)) {
-        throw new ApiHandlerError(JSON.stringify({ msg: "some error" }), 401);
+        throw new ApiHandlerError({ msg: "some error" }, 401);
       }
     },
   },

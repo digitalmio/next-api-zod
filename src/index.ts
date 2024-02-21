@@ -8,8 +8,11 @@ import { z } from "zod";
 
 export class ApiHandlerError extends Error {
   statusCode: number;
-  constructor(message: string, statusCode: number = 400) {
-    super(message);
+  constructor(
+    message: string | Record<string, unknown> | { [key: string]: unknown },
+    statusCode: number = 400
+  ) {
+    super(typeof message === "string" ? message : JSON.stringify(message));
     this.statusCode = statusCode;
   }
 }
@@ -188,6 +191,7 @@ export const apiHandler = <
               status: e instanceof ApiHandlerError ? e.statusCode || 400 : 400,
             });
           } catch {
+            // in case if `JSON.parse` fails
             return new NextResponse(e.message, {
               status: e instanceof ApiHandlerError ? e.statusCode || 400 : 400,
             });
