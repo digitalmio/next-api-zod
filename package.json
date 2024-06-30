@@ -1,6 +1,6 @@
 {
   "name": "next-api-zod",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "",
   "homepage": "https://github.com/digitalmio/next-api-zod#readme",
   "main": "dist/index.js",
@@ -21,7 +21,7 @@
     "zod": "^3.22.4"
   },
   "peerDependencies": {
-    "next": "^13.5.4",
+    "next": ">=13.5.4",
     "zod": "^3.22.4"
   }
 }
