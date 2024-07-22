@@ -13,8 +13,8 @@ So, once I failed to find what I was looking for, I've spent an evening and buil
 - validates dynamic route segments
 - validates headers
 - returns simple 400 error JSON response or returns error list in third param for you to return own response in handler or pre-handler
-- offers to run pre-handler (with access to validated data), so you can re-use logic to check auth tokens etc. Simply throw error to stop execution
-- returns third param to main handler with type safe validated input, an object: `{body?: {}, segment?: {}, query?: {}, headers?: {}, errors?: {}}`
+- offers to run pre-handler (with access to validated data), so you can re-use logic to check auth tokens etc. Return data will be available in handler as `ctx`. Throw error to stop execution and return HTTP error (configurable to turn off)
+- returns third param to main handler with type safe validated input, an object: `{body?: {}, segment?: {}, query?: {}, headers?: {}, errors?: {}, ctx?: unknown}`
 - exports `ApiHandlerError` to throw on preHandler (you can also throw standard `Error`, then 400 status will be returned)
 
 # Usage
@@ -50,17 +50,21 @@ export const POST = apiHandler(
     preHandler: (req, nfe, { headers }) => {
       // here you can validate token, etc
       // throw to stop execution - handler will not run
+      // dummy code as an example
       if (!isValidToken(headers)) {
         throw new ApiHandlerError({ msg: "some error" }, 401);
       }
+      // what you return here will be available in handler as ctx
+      return userData;
     },
   },
-  (req, nfe, { body, query, segment, headers }) => {
+  (req, nfe, { body, query, segment, headers, ctx: userData }) => {
     console.log({
       body: body.someKey,
       qp: query.someQueryParam,
       segment: segment.someParam,
       headers: headers.someHeader,
+      userData
     });
 
     return new NextResponse("OK");

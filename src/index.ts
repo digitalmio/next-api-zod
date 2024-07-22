@@ -21,7 +21,8 @@ export const apiHandler = <
   TBody extends z.AnyZodObject,
   TQueryParam extends z.AnyZodObject,
   TSegment extends z.AnyZodObject,
-  THeaders extends z.AnyZodObject
+  THeaders extends z.AnyZodObject,
+  PreHandlerReturn extends unknown
 >(
   setup: {
     schema?: {
@@ -40,7 +41,7 @@ export const apiHandler = <
         headers: z.infer<THeaders>;
         errors: z.ZodIssue[];
       }
-    ) => void | Promise<void>;
+    ) => PreHandlerReturn | Promise<PreHandlerReturn>;
     config?: {
       return400ValidationError: boolean;
     };
@@ -54,6 +55,7 @@ export const apiHandler = <
       query: z.infer<TQueryParam>;
       headers: z.infer<THeaders>;
       errors: z.ZodIssue[];
+      ctx: PreHandlerReturn;
     }
   ) => void | Response | Promise<void | Response>
 ) => {
@@ -102,6 +104,7 @@ export const apiHandler = <
       query: z.infer<TQueryParam>;
       headers: z.infer<THeaders>;
       errors: z.ZodIssue[];
+      ctx: PreHandlerReturn;
     };
 
     // start with empty list of errors / issues
@@ -164,7 +167,7 @@ export const apiHandler = <
     if (!!setup.schema && toBeParsedList.length > 0) {
       for (const el of toBeParsedList) {
         const data = await getData(el);
-        const parsed = setup.schema[el]?.safeParse(data);
+        const parsed = await setup.schema[el]?.safeParseAsync(data);
 
         if (parsed?.success) {
           validated[el] = parsed.data;
@@ -183,7 +186,7 @@ export const apiHandler = <
 
     if (setup.preHandler) {
       try {
-        await setup.preHandler(reqClone, nfe, validated);
+        validated.ctx = await setup.preHandler(reqClone, nfe, validated);
       } catch (e) {
         if (e instanceof ApiHandlerError || e instanceof Error) {
           try {
@@ -214,4 +217,4 @@ export const apiHandler = <
     // run handler
     return handler(reqClone, nfe, validated);
   };
-};
+};;
